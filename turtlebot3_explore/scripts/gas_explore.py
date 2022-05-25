@@ -5,6 +5,7 @@ import math
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Float32
+from move_base_msgs.msg import MoveBaseActionGoal
 from turtlebot3_explore.msg import PositionAndGas
 from nav_msgs.msg import Odometry
 
@@ -25,6 +26,7 @@ class gas_explore:
 
         rospy.init_node("gas_explore")
         self.vel_pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
+        self.goal_pub = rospy.Publisher("/move_base/goal", MoveBaseActionGoal, queue_size=10)
         # self.scan_sub = rospy.Subscriber("/scan", LaserScan, self.callback, callback_args=0)
         # self.gas_value_sub = rospy.Subscriber("/gas", Float32, self.callback, callback_args=1)
         self.scan_sub = rospy.Subscriber("/scan", LaserScan, self.callback)
@@ -85,6 +87,10 @@ class gas_explore:
             self.cmd_yaw = 0.0
             # TODO: set goal as self.maxValueOdom
             # use diff or move_base
+            goal = MoveBaseActionGoal()
+            goal.goal.target_pose.pose.position = self.robot_position
+            self.goal_pub(goal)
+
         #front_dist = msg.ranges[0]
         front_dists = msg.ranges[:20]+ msg.ranges[340:]
         front_dist = min(list(map(lambda x: inf_distance if x == float('inf') else x, front_dists)))
