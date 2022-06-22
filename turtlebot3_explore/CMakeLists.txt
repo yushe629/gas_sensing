@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   std_msgs
   sensor_msgs
+  nav_msgs
   tf
   message_generation
 )
@@ -29,6 +30,8 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
    FILES
    PositionAndGas.msg
+   GasAndOdom.msg
+   Gas.msg
 )
 
 ## Generate added messages and services with any dependencies listed here
@@ -36,10 +39,11 @@ generate_messages(
   DEPENDENCIES
   std_msgs
   sensor_msgs
+  nav_msgs
 )
 
 catkin_package(
-  CATKIN_DEPENDS roscpp rospy tf message_runtime sensor_msgs std_msgs
+  CATKIN_DEPENDS roscpp rospy tf message_runtime sensor_msgs std_msgs nav_msgs
 )
 
 ## Your package locations should be listed before other locations
