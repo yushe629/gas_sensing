@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-import imp
 import rospy
 import message_filters
 import math
@@ -22,36 +21,32 @@ explore_vel = 0.3
 explore_time = 0.3
 explore_yaw_vel = 1.0
 explore_yaw_time = 0.3
-explore_state = ['front', 'back', 'turn', 'after_turn', 'explored']
+# explore_state = ['front', 'back', 'turn', 'after_turn', 'explored'] 
 
 class gas_scrutinize:
     def __init__(self):
 
         rospy.init_node("gas_scrutinize")
 
+        # subscribers and publishers
         self.vel_pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
         self.goal_pub = rospy.Publisher("/move_base_simple/goal", PoseStamped, queue_size=10)
-        self.scan_sub = rospy.Subscriber("/scan", LaserScan, self.callback)
+        self.is_finish_search_sub = rospy.Subscriber("/is_finish_search", Bool, self.search_callback)
+        self.scan_sub = message_filters.Subscriber("/scan", LaserScan)
         self.gas_value_sub = message_filters.Subscriber("/gas", Gas)
         self.robot_pose_sub = message_filters.Subscriber("/odom", Odometry)
         self.delay = 1/100. * 0.5
-        self.mf = message_filters.ApproximateTimeSynchronizer([self.gas_value_sub, self.robot_pose_sub], 10, self.delay)
-        self.mf.registerCallback(self.gas_odom_callback)
+        self.mf = message_filters.ApproximateTimeSynchronizer([self.scan_sub, self.gas_value_sub, self.robot_pose_sub], 10, self.delay)
+        self.mf.registerCallback(self.callback)
 
+        # params
         self.territory_radius = rospy.get_param("~territory_radius", 0.6)
-        
-        self.is_finish_search_sub = rospy.Subscriber("/is_finish_search", Bool, self.search_callback)
-
-        self.execute = False
-
-        # self.estimated_gas_map_sub = rospy.Subscriber("estimated_gas_map", self.map_callback)
-
         self.timeout_sec = rospy.get_param("~timeout_sec", 15.0)
 
+        self.execute = False
         self.start_time = 0
         self.max_gas_value = 0.0
         self.final_robot_pose = Pose()
-        self.robot_pose = Pose()
         self.goal_pose = PoseStamped()
         self.goal_pose.header.frame_id = "map"
         self.cmd_x = 0.0
@@ -60,7 +55,6 @@ class gas_scrutinize:
         self.iscorrect_path = True
         self.max_gas_value_time = rospy.get_time()
         self.before_gas_value = 0
-        self.gas_value = 0
 
         rospy.spin()
 
@@ -68,32 +62,16 @@ class gas_scrutinize:
         self.execute = msg.data
         self.start_time = rospy.get_time()
 
-    def gas_odom_callback(self, gas_msg, odom_msg):
-        if not self.execute:
-            return
-        self.gas_value = gas_msg.gas.data
-        self.before_gas_value = self.gas_value
-        self.gas_value = gas_msg.gas.data
-        if gas_msg.gas.data > self.max_gas_value:
-            self.max_gas_value = gas_msg.gas.data
-            self.final_robot_pose = odom_msg.pose.pose
-            self.max_gas_value_time = rospy.get_time()
-
-    # def odom_callback(self, msg):
+    # def gas_odom_callback(self, gas_msg, odom_msg):
     #     if not self.execute:
     #         return
-    #     self.robot_pose = msg.pose.pose
-
-    # def gas_callback(self,msg):
-    #     if not self.execute:
-    #         return
+    #     self.gas_value = gas_msg.gas.data
     #     self.before_gas_value = self.gas_value
-    #     self.gas_value = msg.data
-    #     if msg.data > self.max_gas_value:
-    #         self.max_gas_value = msg.data
-    #         self.final_robot_pose = self.robot_pose
+    #     self.gas_value = gas_msg.gas.data
+    #     if gas_msg.gas.data > self.max_gas_value:
+    #         self.max_gas_value = gas_msg.gas.data
+    #         self.final_robot_pose = odom_msg.pose.pose
     #         self.max_gas_value_time = rospy.get_time()
-
 
     def explore(self):
         if self.explore_state == 'front':
@@ -114,24 +92,26 @@ class gas_scrutinize:
             self.cmd_x = 0.0
             self.cmd_yaw = 0.0
             self.explore_state = 'front'
-            
-    def callback(self, msg):
+
+    def callback(self, scan_msg, gas_msg, odom_msg):
         if not self.execute:
             return
 
         if self.start_time == 0:
             self.start_time = rospy.get_time()
-            self.max_gas_value_time = rospy.time()
+            self.max_gas_value_time = rospy.get_time()
             return
 
-        if self.explore_state == "explored":
-            return
+        if gas_msg.gas.data > self.max_gas_value:
+            self.max_gas_value = gas_msg.gas.data
+            self.final_robot_pose = odom_msg.pose.pose
+            self.max_gas_value_time = rospy.get_time()
 
+        # Check Time Out
         last_sec = (rospy.get_time() - self.max_gas_value_time)
         # rospy.loginfo_throttle(1.0, "last_sec: %f", last_sec)
         if last_sec  > self.timeout_sec:
-            rospy.logwarn_once("Robot discovered goal!")
-            self.explore_state = "explored"
+            # rospy.logwarn_once("Robot discovered goal!")
             self.cmd_x = 0.0
             self.cmd_yaw = 0.0
             self.goal_pose.header.seq = self.goal_pose.header.seq + 1
@@ -141,33 +121,32 @@ class gas_scrutinize:
             self.execute = False
             return
 
-        #front_dist = msg.ranges[0]
-        # front_dists = msg.ranges[:20]+ msg.ranges[340:]
-        # front_dist = min(list(map(lambda x: inf_distance if x == float('inf') else x, front_dists)))
-        size = len(msg.ranges)
-        front_dists = msg.ranges[:half_of_scan_size]+ msg.ranges[(size - half_of_scan_size):]
+        size = len(scan_msg.ranges)
+        front_dists = scan_msg.ranges[:half_of_scan_size]+ scan_msg.ranges[(size - half_of_scan_size):]
         front_dist = min(list(map(lambda x: inf_distance if (x == float('inf') or x == 0.0
         ) else x, front_dists)))
-        rospy.loginfo_throttle(1.0, "minimum front distance: %f", front_dist)
+        # rospy.loginfo_throttle(1.0, "minimum front distance: %f", front_dist) 
 
-        if self.before_gas_value < self.gas_value:
+        if self.before_gas_value < gas_msg.gas.data:
             self.explore_state = 'front'
 
         if (front_dist < self.territory_radius):
+            # Avoiding obstacle
             self.cmd_x = 0.0
             self.cmd_yaw = 0.5
-            self.explore_state = 'front'
             rospy.loginfo_throttle(1.0, 'state: avoiding obstacle',)
         else:
             self.cmd_yaw = 0.0
             self.cmd_x = 0.0
             rospy.loginfo_throttle(1.0, 'state: %s', self.explore_state)
+            # Explore gas origin
             self.explore()
 
         cmd_msg = Twist()
         cmd_msg.linear.x = self.cmd_x
         cmd_msg.angular.z =self.cmd_yaw
         self.vel_pub.publish(cmd_msg)
+        self.before_gas_value = gas_msg.gas.data
 
 if __name__ == "__main__":
     try:
