@@ -11,6 +11,7 @@ from nav_msgs.msg import Odometry
 from move_base_msgs.msg import MoveBaseActionGoal
 from nav_msgs.msg import OccupancyGrid
 import numpy as np
+from turtlebot3_explore.msg import Gas
 
 # if scan_val is Inf, inf_distance is assigned.
 inf_distance = 5.0
@@ -32,10 +33,13 @@ class gas_explore:
         self.goal_pub = rospy.Publisher("/move_base_simple/goal", PoseStamped, queue_size=10)
         self.gas_map_pub= rospy.Publisher("/estimated_gas_map", OccupancyGrid, queue_size=1)
         self.scan_sub = rospy.Subscriber("/scan", LaserScan, self.callback)
-        self.gas_value_sub = rospy.Subscriber("/gas", Float32, self.gas_callback)
-        self.robot_pose_sub = rospy.Subscriber("/odom", Odometry, self.odom_callback)
-        # self.mf = message_filters.ApproximateTimeSynchronizer([self.scan_sub, self.gas_value_sub], queue_size=10, deley =1/100. * 0.5)
-        # self.mf.registerCallback(self.callback)
+
+        self.gas_value_sub = message_filters.Subscriber("/gas", Gas)
+        self.robot_pose_sub = message_filters.Subscriber("/odom", Odometry)
+        self.delay = 1/100. * 0.5
+        self.mf = message_filters.ApproximateTimeSynchronizer([self.gas_value_sub, self.robot_pose_sub], 10, self.delay)
+        self.mf.registerCallback(self.gas_odom_callback)
+        
         self.before_gas_value = 0.0
         self.gas_value = 0.0
         self.max_gas_value = 0.0
@@ -70,36 +74,46 @@ class gas_explore:
         self.gas_map_pub_time = rospy.get_time()
 
         rospy.spin()
-        # TODO How to use two or three subscribers
+        
 
     def time_now_in_node(self):
         t = rospy.Time.now()
         return t - self.begin_time
 
-    def odom_callback(self,msg):
-        # set Odometry.pose.pose
-        self.robot_pose = msg.pose.pose
+    def gas_odom_callback(self, gas_msg, odom_msg):
+        # if not self.execute:
+        #     return
+        self.gas_value = gas_msg.gas.data
+        if gas_msg.gas.data > self.max_gas_value:
+            self.max_gas_value = gas_msg.gas.data
+            self.final_robot_pose = odom_msg.pose.pose
+            self.max_gas_value_time = rospy.get_time()
 
-    def gas_callback(self, msg):
-        self.before_gas_value = self.gas_value
-        self.gas_value = msg.data
-        # Add gas map date to gas_map_array
-        if self.robot_pose != None:
-            self.gas_map_array = np.append(self.gas_map_array, [[self.robot_pose.position.x, self.robot_pose.position.y, msg.data]], axis=0)
+    
+    # def odom_callback(self,msg):
+    #     # set Odometry.pose.pose
+    #     self.robot_pose = msg.pose.pose
+
+    # def gas_callback(self, msg):
+    #     self.before_gas_value = self.gas_value
+    #     self.gas_value = msg.data
+    #     # Add gas map date to gas_map_array
+    #     if self.robot_pose != None:
+    #         self.gas_map_array = np.append(self.gas_map_array, [[self.robot_pose.position.x, self.robot_pose.position.y, msg.data]], axis=0)
 
             # visualize the gas map
-            pixel_x = int((self.robot_pose.position.x - self.gas_visual_map.info.origin.position.x) / self.gas_visual_map.info.resolution)
-            pixel_y = int((self.robot_pose.position.y - self.gas_visual_map.info.origin.position.y) / self.gas_visual_map.info.resolution)
-            self.gas_visual_map.data[pixel_y * self.gas_visual_map.info.width + pixel_x] = int(msg.data * self.gas_scale + self.gas_offset)
+        #     pixel_x = int((self.robot_pose.position.x - self.gas_visual_map.info.origin.position.x) / self.gas_visual_map.info.resolution)
+        #     pixel_y = int((self.robot_pose.position.y - self.gas_visual_map.info.origin.position.y) / self.gas_visual_map.info.resolution)
+        #     self.gas_visual_map.data[pixel_y * self.gas_visual_map.info.width + pixel_x] = int(msg.data * self.gas_scale + self.gas_offset)
 
-            if rospy.get_time() - self.gas_map_pub_time > 1.0: # publish in 1 Hz
-                self.gas_map_pub.publish(self.gas_visual_map)
-                self.gas_map_pub_time= rospy.get_time()
+        #     if rospy.get_time() - self.gas_map_pub_time > 1.0: # publish in 1 Hz
+        #         self.gas_map_pub.publish(self.gas_visual_map)
+        #         self.gas_map_pub_time= rospy.get_time()
 
-        if msg.data > self.max_gas_value:
-            self.max_gas_value = msg.data
-            self.max_gas_value_time = self.time_now_in_node()
-            self.max_gas_value_pose = self.robot_pose
+        # if msg.data > self.max_gas_value:
+        #     self.max_gas_value = msg.data
+        #     self.max_gas_value_time = self.time_now_in_node()
+        #     self.max_gas_value_pose = self.robot_pose
 
     def explore(self):
         if self.explore_state == 'front':

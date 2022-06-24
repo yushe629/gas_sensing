@@ -10,12 +10,13 @@ from nav_msgs.msg import Odometry
 from move_base_msgs.msg import MoveBaseActionGoal
 from nav_msgs.msg import OccupancyGrid
 import numpy as np
+from turtlebot3_explore.msg import Gas
 
 # if scan_val is Inf, inf_distance is assigned.
 inf_distance = 5.0
 # the radius of the robot explore area
-territory_radius = 1.0
-half_of_scan_size = 30
+# territory_radius = 1.0  for aibot
+half_of_scan_size = 20
 # the velocity of exploring and the type of explore state
 explore_vel = 0.3
 explore_time = 0.3
@@ -31,8 +32,13 @@ class gas_scrutinize:
         self.vel_pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
         self.goal_pub = rospy.Publisher("/move_base_simple/goal", PoseStamped, queue_size=10)
         self.scan_sub = rospy.Subscriber("/scan", LaserScan, self.callback)
-        self.gas_value_sub = rospy.Subscriber("/gas", Float32, self.gas_callback)
-        self.odom_sub = rospy.Subscriber("/odom", Odometry, self.odom_callback)
+        self.gas_value_sub = message_filters.Subscriber("/gas", Gas)
+        self.robot_pose_sub = message_filters.Subscriber("/odom", Odometry)
+        self.delay = 1/100. * 0.5
+        self.mf = message_filters.ApproximateTimeSynchronizer([self.gas_value_sub, self.robot_pose_sub], 10, self.delay)
+        self.mf.registerCallback(self.gas_odom_callback)
+
+        self.territory_radius = rospy.get_param("~territory_radius", 0.6)
         
         self.is_finish_search_sub = rospy.Subscriber("/is_finish_search", Bool, self.search_callback)
 
@@ -62,20 +68,31 @@ class gas_scrutinize:
         self.execute = msg.data
         self.start_time = rospy.get_time()
 
-    def odom_callback(self, msg):
+    def gas_odom_callback(self, gas_msg, odom_msg):
         if not self.execute:
             return
-        self.robot_pose = msg.pose.pose
-
-    def gas_callback(self,msg):
-        if not self.execute:
-            return
+        self.gas_value = gas_msg.gas.data
         self.before_gas_value = self.gas_value
-        self.gas_value = msg.data
-        if msg.data > self.max_gas_value:
-            self.max_gas_value = msg.data
-            self.final_robot_pose = self.robot_pose
+        self.gas_value = gas_msg.gas.data
+        if gas_msg.gas.data > self.max_gas_value:
+            self.max_gas_value = gas_msg.gas.data
+            self.final_robot_pose = odom_msg.pose.pose
             self.max_gas_value_time = rospy.get_time()
+
+    # def odom_callback(self, msg):
+    #     if not self.execute:
+    #         return
+    #     self.robot_pose = msg.pose.pose
+
+    # def gas_callback(self,msg):
+    #     if not self.execute:
+    #         return
+    #     self.before_gas_value = self.gas_value
+    #     self.gas_value = msg.data
+    #     if msg.data > self.max_gas_value:
+    #         self.max_gas_value = msg.data
+    #         self.final_robot_pose = self.robot_pose
+    #         self.max_gas_value_time = rospy.get_time()
 
 
     def explore(self):
@@ -136,7 +153,7 @@ class gas_scrutinize:
         if self.before_gas_value < self.gas_value:
             self.explore_state = 'front'
 
-        if (front_dist < territory_radius):
+        if (front_dist < self.territory_radius):
             self.cmd_x = 0.0
             self.cmd_yaw = 0.5
             self.explore_state = 'front'

@@ -7,6 +7,7 @@ import numpy as np
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry, OccupancyGrid
 from std_msgs.msg import Float32
+from turtlebot3_explore.msg import Gas
 
 class GasDistributer:
     def __init__(self):
@@ -20,7 +21,7 @@ class GasDistributer:
         # self.alpha = rospy.get_param("~alpha", 1.0)
         self.max_val = rospy.get_param("~gap_max_val", 100)
         # define publisher and subscriber
-        self.gas_value_pub = rospy.Publisher("/gas", Float32, queue_size=10)
+        self.gas_value_pub = rospy.Publisher("/gas", Gas, queue_size=10)
         self.robot_pose_sub = rospy.Subscriber("/odom", Odometry, self.odom_callback)
         self.gas_map_pub = rospy.Publisher("/true_gas_map", OccupancyGrid, queue_size=1)
         # setting rosTime
@@ -71,13 +72,13 @@ class GasDistributer:
             self.gas_visual_map.data[i] = int(value*self.gas_scale + self.gas_offset)
 
     def odom_callback(self, msg):
-        rospy.logdebug_throttle(1.0, "robot odom")
-
         pos = msg.pose.pose.position
         pos = np.array([pos.x, pos.y, pos.z])
-        value = Float32()
-        value.data = self.calc_gas_value(pos)
-        self.gas_value_pub.publish(value)
+        gas_msg = Gas()
+        gas_msg.header.stamp = rospy.Time.now()
+        gas_msg.gas.data = calc_gas_value(pos)
+        self.gas_value_pub.publish(gas_msg)
+
         self.map_gen()
         self.gas_map_pub.publish(self.gas_visual_map)
 
