@@ -41,16 +41,16 @@ class gas_scrutinize:
 
         # params
         self.territory_radius = rospy.get_param("~territory_radius", 0.6)
-        self.timeout_sec = rospy.get_param("~timeout_sec", 15.0)
+        self.timeout_sec = rospy.get_param("~timeout_sec", 20.0)
         self.inf_distance = rospy.get_param("~inf_distance", 5.0)
         # half counts of Lasascan.data for using
-        self.half_of_scan_size = rospy.get_param("~half_of_scan_size", 20)
+        self.half_of_scan_size = rospy.get_param("~half_of_scan_size", 30)
         self.explore_vel_x = rospy.get_param("~explore_vel_x", 0.3)
         self.explore_vel_yaw = rospy.get_param("~explore_vel_yaw", 0.3)
         self.explore_time_x = rospy.get_param("~explore_time_x", 1.0)
         self.explore_time_yaw = rospy.get_param("~explore_time_yaw", 0.3)
 
-        self.execute = True
+        self.execute = False
         self.start_time = 0
         self.max_gas_value = 0.0
         self.final_robot_pose = Pose()
@@ -119,7 +119,7 @@ class gas_scrutinize:
         last_sec = (rospy.get_time() - self.max_gas_value_time)
         # rospy.loginfo_throttle(1.0, "last_sec: %f", last_sec)
         if last_sec  > self.timeout_sec:
-            # rospy.logwarn_once("Robot discovered goal!")
+            rospy.logwarn_once("Robot discovered goal!")
             self.cmd_x = 0.0
             self.cmd_yaw = 0.0
             self.goal_pose.header.seq = self.goal_pose.header.seq + 1

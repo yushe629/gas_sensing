@@ -76,7 +76,7 @@ class GasDistributer:
         pos = np.array([pos.x, pos.y, pos.z])
         gas_msg = Gas()
         gas_msg.header.stamp = rospy.Time.now()
-        gas_msg.gas.data = calc_gas_value(pos)
+        gas_msg.gas.data = self.calc_gas_value(pos)
         self.gas_value_pub.publish(gas_msg)
 
         self.map_gen()
