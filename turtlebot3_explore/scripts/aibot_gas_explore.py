@@ -1,12 +1,11 @@
 #!/usr/bin/env python
-import imp
+
 import rospy
 import message_filters
 import math
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist, PoseStamped
 from std_msgs.msg import Float32
-from turtlebot3_explore.msg import PositionAndGas
 from nav_msgs.msg import Odometry
 from move_base_msgs.msg import MoveBaseActionGoal
 from nav_msgs.msg import OccupancyGrid
@@ -15,14 +14,15 @@ import numpy as np
 # if scan_val is Inf, inf_distance is assigned.
 inf_distance = 5.0
 # the radius of the robot explore area
-territory_radius = 0.6
+territory_radius = 1.0
+half_of_scan_size = 30
 # the velocity of exploring and the type of explore state
 explore_vel = 0.3
-explore_time = 0.3
-explore_yaw_vel = 1.0
-explore_yaw_time = 0.3
+explore_time = 0.5
+explore_yaw_vel = 2.0
+explore_yaw_time = 1.0
 explore_state = ['front', 'back', 'turn', 'after_turn', 'explored']
-limit_time = 30.0
+limit_time = 30
 
 class gas_explore:
     def __init__(self):
@@ -83,6 +83,7 @@ class gas_explore:
     def gas_callback(self, msg):
         self.before_gas_value = self.gas_value
         self.gas_value = msg.data
+        rospy.loginfo("value: %s", msg)
         # Add gas map date to gas_map_array
         if self.robot_pose != None:
             self.gas_map_array = np.append(self.gas_map_array, [[self.robot_pose.position.x, self.robot_pose.position.y, msg.data]], axis=0)
@@ -103,6 +104,7 @@ class gas_explore:
 
     def explore(self):
         if self.explore_state == 'front':
+            rospy.sleep(explore_time)
             self.cmd_x = explore_vel
             self.cmd_yaw = 0.0
             self.explore_state = 'back'
@@ -140,10 +142,24 @@ class gas_explore:
             self.goal_pub.publish(self.goal_pose)
             return
 
+        size = len(msg.ranges)
         #front_dist = msg.ranges[0]
-        front_dists = msg.ranges[:20]+ msg.ranges[340:]
-        front_dist = min(list(map(lambda x: inf_distance if x == float('inf') else x, front_dists)))
+        front_dists = msg.ranges[:half_of_scan_size]+ msg.ranges[(size - half_of_scan_size):]
+        front_dist = min(list(map(lambda x: inf_distance if (x == float('inf') or x == 0.0
+) else x, front_dists)))
         rospy.loginfo_throttle(1.0, "minimum front distance: %f", front_dist)
+        
+        # 180 (back):  msg.ranges[len(msg.ranges)/2]
+
+        ## TODO: please implement roomba action
+        if (front_dist < territory_radius):
+            cmd_x = 0.0
+            cmd_yaw = 0.5
+        else:
+            cmd_x = 0.3
+            cmd_yaw = 0.0
+
+        # rospy.loginfo_throttle(1.0, "minimum front distance: %f", front_dist)
         if self.before_gas_value < self.gas_value:
             self.explore_state = 'front'
 
@@ -153,23 +169,17 @@ class gas_explore:
             self.cmd_x = 0.0
             self.cmd_yaw = 0.5
             self.explore_state = 'front'
-            rospy.loginfo_throttle(1.0, 'state: avoiding obstacle',)
+            # rospy.loginfo_throttle(1.0, 'state: avoiding obstacle')
         else:
             self.cmd_yaw = 0.0
             self.cmd_x = 0.0
-            rospy.loginfo_throttle(1.0, 'state: %s', self.explore_state)
+            # rospy.loginfo_throttle(1.0, 'state: %s', self.explore_state)
             self.explore()
 
 
         cmd_msg = Twist()
         cmd_msg.linear.x = self.cmd_x
         cmd_msg.angular.z =self.cmd_yaw
-        # rospy.loginfo_throttle(1.0, "value: %s", str(self.gas_value))
-        # rospy.loginfo_throttle(1.0, "before_gas_value: %s", str(self.before_gas_value))
-        # rospy.loginfo_throttle(1.0, "maxvalue: %s", str(self.max_gas_value))
-        # rospy.loginfo_throttle(1.0, "x: %f", self.cmd_x)
-        # rospy.loginfo_throttle(1.0, "yaw: %f", self.cmd_yaw)
-        # rospy.loginfo_throttle(1.0, "array: %s", self.gas_map_array)
         self.vel_pub.publish(cmd_msg)
 
 if __name__ == "__main__":
